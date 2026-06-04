@@ -1,0 +1,14 @@
+[project]
+name = "causal-communication-refiner"
+version = "0.1.0"
+description = "Generator-agnostic post-hoc causal refinement for LLM-MAS communication graphs"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy",
+  "torch",
+  "datasets",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

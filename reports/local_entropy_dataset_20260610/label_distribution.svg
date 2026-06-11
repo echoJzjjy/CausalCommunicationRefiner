@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="620" viewBox="0 0 1120 620">
+<rect width="100%" height="100%" fill="#fbfaf7"/>
+<text x="40" y="38" font-size="24" font-family="Arial" font-weight="700" fill="#172033">Normalized Local-Entropy Label Distribution</text>
+<text x="40" y="62" font-size="13" font-family="Arial" fill="#526070">label = 0.5*pair_entropy + 0.25*source_entropy + 0.25*target_entropy, normalized by log(5)</text>
+<line x1="110" y1="80" x2="110" y2="525" stroke="#b8c0cc"/>
+<line x1="110" y1="525" x2="1090" y2="525" stroke="#b8c0cc"/>
+<line x1="105" y1="525.0" x2="1090" y2="525.0" stroke="#e5e7eb"/>
+<text x="98" y="529.0" text-anchor="end" font-size="12" font-family="Arial" fill="#526070">0</text>
+<line x1="105" y1="429.0" x2="1090" y2="429.0" stroke="#e5e7eb"/>
+<text x="98" y="433.0" text-anchor="end" font-size="12" font-family="Arial" fill="#526070">120</text>
+<line x1="105" y1="332.9" x2="1090" y2="332.9" stroke="#e5e7eb"/>
+<text x="98" y="336.9" text-anchor="end" font-size="12" font-family="Arial" fill="#526070">240</text>
+<line x1="105" y1="236.9" x2="1090" y2="236.9" stroke="#e5e7eb"/>
+<text x="98" y="240.9" text-anchor="end" font-size="12" font-family="Arial" fill="#526070">360</text>
+<line x1="105" y1="140.8" x2="1090" y2="140.8" stroke="#e5e7eb"/>
+<text x="98" y="144.8" text-anchor="end" font-size="12" font-family="Arial" fill="#526070">480</text>
+<rect x="120.9" y="392.9" width="14.9" height="132.1" fill="#d1d5db"/>
+<rect x="139.0" y="525.0" width="14.9" height="0.0" fill="#bfdbfe"/>
+<rect x="157.2" y="501.8" width="14.9" height="23.2" fill="#93c5fd"/>
+<rect x="175.3" y="509.0" width="14.9" height="16.0" fill="#60a5fa"/>
+<rect x="193.5" y="511.4" width="14.9" height="13.6" fill="#2563eb"/>
+<rect x="211.6" y="517.8" width="14.9" height="7.2" fill="#1d4ed8"/>
+<rect x="229.8" y="525.0" width="14.9" height="0.0" fill="#1e40af"/>
+<rect x="247.9" y="525.0" width="14.9" height="0.0" fill="#172554"/>
+<text x="191.7" y="553" text-anchor="middle" font-size="13" font-family="Arial" fill="#172033">gsm8k</text>
+<rect x="284.2" y="374.5" width="14.9" height="150.5" fill="#d1d5db"/>
+<rect x="302.4" y="525.0" width="14.9" height="0.0" fill="#bfdbfe"/>
+<rect x="320.5" y="509.0" width="14.9" height="16.0" fill="#93c5fd"/>
+<rect x="338.7" y="504.2" width="14.9" height="20.8" fill="#60a5fa"/>
+<rect x="356.8" y="520.2" width="14.9" height="4.8" fill="#2563eb"/>
+<rect x="375.0" y="525.0" width="14.9" height="0.0" fill="#1d4ed8"/>
+<rect x="393.1" y="525.0" width="14.9" height="0.0" fill="#1e40af"/>
+<rect x="411.3" y="525.0" width="14.9" height="0.0" fill="#172554"/>
+<text x="355.0" y="553" text-anchor="middle" font-size="13" font-family="Arial" fill="#172033">multiarith</text>
+<rect x="447.6" y="373.7" width="14.9" height="151.3" fill="#d1d5db"/>
+<rect x="465.7" y="525.0" width="14.9" height="0.0" fill="#bfdbfe"/>
+<rect x="483.9" y="510.6" width="14.9" height="14.4" fill="#93c5fd"/>
+<rect x="502.0" y="514.6" width="14.9" height="10.4" fill="#60a5fa"/>
+<rect x="520.1" y="509.8" width="14.9" height="15.2" fill="#2563eb"/>
+<rect x="538.3" y="524.2" width="14.9" height="0.8" fill="#1d4ed8"/>
+<rect x="556.4" y="525.0" width="14.9" height="0.0" fill="#1e40af"/>
+<rect x="574.6" y="525.0" width="14.9" height="0.0" fill="#172554"/>
+<text x="518.3" y="553" text-anchor="middle" font-size="13" font-family="Arial" fill="#172033">svamp</text>
+<rect x="610.9" y="441.8" width="14.9" height="83.2" fill="#d1d5db"/>
+<rect x="629.0" y="525.0" width="14.9" height="0.0" fill="#bfdbfe"/>
+<rect x="647.2" y="495.4" width="14.9" height="29.6" fill="#93c5fd"/>
+<rect x="665.3" y="472.2" width="14.9" height="52.8" fill="#60a5fa"/>
+<rect x="683.5" y="506.6" width="14.9" height="18.4" fill="#2563eb"/>
+<rect x="701.6" y="517.8" width="14.9" height="7.2" fill="#1d4ed8"/>
+<rect x="719.8" y="524.2" width="14.9" height="0.8" fill="#1e40af"/>
+<rect x="737.9" y="525.0" width="14.9" height="0.0" fill="#172554"/>
+<text x="681.7" y="553" text-anchor="middle" font-size="13" font-family="Arial" fill="#172033">aqua</text>
+<rect x="774.2" y="412.9" width="14.9" height="112.1" fill="#d1d5db"/>
+<rect x="792.4" y="525.0" width="14.9" height="0.0" fill="#bfdbfe"/>
+<rect x="810.5" y="509.8" width="14.9" height="15.2" fill="#93c5fd"/>
+<rect x="828.7" y="508.2" width="14.9" height="16.8" fill="#60a5fa"/>
+<rect x="846.8" y="521.8" width="14.9" height="3.2" fill="#2563eb"/>
+<rect x="865.0" y="525.0" width="14.9" height="0.0" fill="#1d4ed8"/>
+<rect x="883.1" y="525.0" width="14.9" height="0.0" fill="#1e40af"/>
+<rect x="901.3" y="525.0" width="14.9" height="0.0" fill="#172554"/>
+<text x="845.0" y="553" text-anchor="middle" font-size="13" font-family="Arial" fill="#172033">mmlu</text>
+<rect x="937.6" y="80.0" width="14.9" height="445.0" fill="#d1d5db"/>
+<rect x="955.7" y="525.0" width="14.9" height="0.0" fill="#bfdbfe"/>
+<rect x="973.9" y="418.6" width="14.9" height="106.4" fill="#93c5fd"/>
+<rect x="992.0" y="409.7" width="14.9" height="115.3" fill="#60a5fa"/>
+<rect x="1010.1" y="418.6" width="14.9" height="106.4" fill="#2563eb"/>
+<rect x="1028.3" y="494.6" width="14.9" height="30.4" fill="#1d4ed8"/>
+<rect x="1046.4" y="519.4" width="14.9" height="5.6" fill="#1e40af"/>
+<rect x="1064.6" y="523.4" width="14.9" height="1.6" fill="#172554"/>
+<text x="1008.3" y="553" text-anchor="middle" font-size="13" font-family="Arial" fill="#172033">humaneval</text>
+<rect x="115" y="573" width="14" height="14" fill="#d1d5db"/>
+<text x="135" y="585" font-size="11" font-family="Arial" fill="#526070">0</text>
+<rect x="233" y="573" width="14" height="14" fill="#bfdbfe"/>
+<text x="253" y="585" font-size="11" font-family="Arial" fill="#526070">(0,.05]</text>
+<rect x="351" y="573" width="14" height="14" fill="#93c5fd"/>
+<text x="371" y="585" font-size="11" font-family="Arial" fill="#526070">(.05,.10]</text>
+<rect x="469" y="573" width="14" height="14" fill="#60a5fa"/>
+<text x="489" y="585" font-size="11" font-family="Arial" fill="#526070">(.10,.20]</text>
+<rect x="587" y="573" width="14" height="14" fill="#2563eb"/>
+<text x="607" y="585" font-size="11" font-family="Arial" fill="#526070">(.20,.40]</text>
+<rect x="705" y="573" width="14" height="14" fill="#1d4ed8"/>
+<text x="725" y="585" font-size="11" font-family="Arial" fill="#526070">(.40,.60]</text>
+<rect x="823" y="573" width="14" height="14" fill="#1e40af"/>
+<text x="843" y="585" font-size="11" font-family="Arial" fill="#526070">(.60,.80]</text>
+<rect x="941" y="573" width="14" height="14" fill="#172554"/>
+<text x="961" y="585" font-size="11" font-family="Arial" fill="#526070">(.80,1]</text>
+</svg>

@@ -97,6 +97,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--explainer-lr", type=float, default=1e-3)
     parser.add_argument("--explainer-weight-decay", type=float, default=1e-4)
     parser.add_argument("--explainer-dropout", type=float, default=0.15)
+    parser.add_argument("--explainer-training-source", choices=["local_entropy", "online_labels"], default="local_entropy")
+    parser.add_argument("--explainer-cache-roots", nargs="+", type=Path, default=None)
+    parser.add_argument("--explainer-cache-auto", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--explainer-label-mode", choices=["pair", "source", "target", "combined"], default="combined")
+    parser.add_argument("--explainer-cost-penalty", type=float, default=0.0)
+    parser.add_argument("--explainer-positive-weight", type=float, default=4.0)
+    parser.add_argument("--explainer-include-smoke", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--explainer-batch-size", type=int, default=64)
+    parser.add_argument("--explainer-val-ratio", type=float, default=0.2)
+    parser.add_argument("--explainer-ranking-weight", type=float, default=0.25)
     parser.add_argument("--sparsity-weight", type=float, default=0.02)
     parser.add_argument("--entropy-weight", type=float, default=0.001)
     parser.add_argument("--mask-scope", choices=["task", "global"], default="task")
@@ -242,18 +252,27 @@ async def run_generator_dataset(
             "usage": summarize_usage(usage_path, f"{scope_prefix}:original"),
         }
 
-    set_usage_scope(f"{scope_prefix}:calibration")
-    label_examples = await collect_causal_labels(
-        adapter,
-        graph,
-        calibration_records,
-        calibration_train,
-        gen_args,
-        random.Random(seed),
-        label_path,
-        intervention_path,
-    )
-    label_min, label_max = normalize_label_examples(label_examples)
+    if getattr(args, "explainer_training_source", "local_entropy") == "local_entropy":
+        label_examples = []
+        for record in calibration_records:
+            input_dict = adapter.train_input_for(record) if calibration_train else adapter.input_for(record)
+            label_examples.append({"task": input_dict["task"], "targets": {}, "weights": {}})
+        label_path.write_text("", encoding="utf-8")
+        intervention_path.write_text("", encoding="utf-8")
+        label_min, label_max = 0.0, 1.0
+    else:
+        set_usage_scope(f"{scope_prefix}:calibration")
+        label_examples = await collect_causal_labels(
+            adapter,
+            graph,
+            calibration_records,
+            calibration_train,
+            gen_args,
+            random.Random(seed),
+            label_path,
+            intervention_path,
+        )
+        label_min, label_max = normalize_label_examples(label_examples)
     with normalized_path.open("w", encoding="utf-8") as out:
         for label in label_examples:
             out.write(json.dumps(label, ensure_ascii=False) + "\n")

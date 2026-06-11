@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1050" height="620" viewBox="0 0 1050 620">
+<rect width="100%" height="100%" fill="#fbfaf7"/>
+<text x="40" y="38" font-size="24" font-family="Arial, sans-serif" font-weight="700" fill="#172033">Local Entropy Counterfactual Dataset Summary</text>
+<text x="40" y="62" font-size="13" font-family="Arial, sans-serif" fill="#526070">bar = edge-deletion rows, dot = mean normalized label; HumanEval is still running/partial</text>
+<line x1="90" y1="70" x2="90" y2="500" stroke="#b8c0cc"/>
+<line x1="90" y1="500" x2="1020" y2="500" stroke="#b8c0cc"/>
+<line x1="85" y1="500.0" x2="1020" y2="500.0" stroke="#e5e7eb"/>
+<text x="78" y="504.0" text-anchor="end" font-size="12" font-family="Arial" fill="#526070">0</text>
+<line x1="85" y1="393.9" x2="1020" y2="393.9" stroke="#e5e7eb"/>
+<text x="78" y="397.9" text-anchor="end" font-size="12" font-family="Arial" fill="#526070">250</text>
+<line x1="85" y1="287.8" x2="1020" y2="287.8" stroke="#e5e7eb"/>
+<text x="78" y="291.8" text-anchor="end" font-size="12" font-family="Arial" fill="#526070">500</text>
+<line x1="85" y1="181.6" x2="1020" y2="181.6" stroke="#e5e7eb"/>
+<text x="78" y="185.6" text-anchor="end" font-size="12" font-family="Arial" fill="#526070">750</text>
+<line x1="85" y1="75.5" x2="1020" y2="75.5" stroke="#e5e7eb"/>
+<text x="78" y="79.5" text-anchor="end" font-size="12" font-family="Arial" fill="#526070">1000</text>
+<rect x="141.2" y="398.1" width="52.7" height="101.9" rx="8" fill="#3b82f6" opacity="0.82"/>
+<text x="167.5" y="390.1" text-anchor="middle" font-size="12" font-family="Arial" fill="#172033">240</text>
+<circle cx="167.5" cy="236.3" r="6" fill="#111827"/>
+<text x="167.5" y="224.3" text-anchor="middle" font-size="11" font-family="Arial" fill="#111827">0.058</text>
+<text x="167.5" y="525" text-anchor="middle" font-size="13" font-family="Arial" fill="#172033">gsm8k</text>
+<text x="167.5" y="543" text-anchor="middle" font-size="11" font-family="Arial" fill="#64748b">40 tasks</text>
+<rect x="296.1" y="398.1" width="52.7" height="101.9" rx="8" fill="#14b8a6" opacity="0.82"/>
+<text x="322.5" y="390.1" text-anchor="middle" font-size="12" font-family="Arial" fill="#172033">240</text>
+<line x1="167.5" y1="236.3" x2="322.5" y2="378.2" stroke="#111827" stroke-width="2" opacity="0.6"/>
+<circle cx="322.5" cy="378.2" r="6" fill="#111827"/>
+<text x="322.5" y="366.2" text-anchor="middle" font-size="11" font-family="Arial" fill="#111827">0.027</text>
+<text x="322.5" y="525" text-anchor="middle" font-size="13" font-family="Arial" fill="#172033">multiarith</text>
+<text x="322.5" y="543" text-anchor="middle" font-size="11" font-family="Arial" fill="#64748b">40 tasks</text>
+<rect x="451.1" y="398.1" width="52.7" height="101.9" rx="8" fill="#f59e0b" opacity="0.82"/>
+<text x="477.5" y="390.1" text-anchor="middle" font-size="12" font-family="Arial" fill="#172033">240</text>
+<line x1="322.5" y1="378.2" x2="477.5" y2="339.2" stroke="#111827" stroke-width="2" opacity="0.6"/>
+<circle cx="477.5" cy="339.2" r="6" fill="#111827"/>
+<text x="477.5" y="327.2" text-anchor="middle" font-size="11" font-family="Arial" fill="#111827">0.035</text>
+<text x="477.5" y="525" text-anchor="middle" font-size="13" font-family="Arial" fill="#172033">svamp</text>
+<text x="477.5" y="543" text-anchor="middle" font-size="11" font-family="Arial" fill="#64748b">40 tasks</text>
+<rect x="606.1" y="398.1" width="52.7" height="101.9" rx="8" fill="#ef4444" opacity="0.82"/>
+<text x="632.5" y="390.1" text-anchor="middle" font-size="12" font-family="Arial" fill="#172033">240</text>
+<line x1="477.5" y1="339.2" x2="632.5" y2="70.0" stroke="#111827" stroke-width="2" opacity="0.6"/>
+<circle cx="632.5" cy="70.0" r="6" fill="#111827"/>
+<text x="632.5" y="58.0" text-anchor="middle" font-size="11" font-family="Arial" fill="#111827">0.094</text>
+<text x="632.5" y="525" text-anchor="middle" font-size="13" font-family="Arial" fill="#172033">aqua</text>
+<text x="632.5" y="543" text-anchor="middle" font-size="11" font-family="Arial" fill="#64748b">40 tasks</text>
+<rect x="761.1" y="421.9" width="52.7" height="78.1" rx="8" fill="#8b5cf6" opacity="0.82"/>
+<text x="787.5" y="413.9" text-anchor="middle" font-size="12" font-family="Arial" fill="#172033">184</text>
+<line x1="632.5" y1="70.0" x2="787.5" y2="378.2" stroke="#111827" stroke-width="2" opacity="0.6"/>
+<circle cx="787.5" cy="378.2" r="6" fill="#111827"/>
+<text x="787.5" y="366.2" text-anchor="middle" font-size="11" font-family="Arial" fill="#111827">0.027</text>
+<text x="787.5" y="525" text-anchor="middle" font-size="13" font-family="Arial" fill="#172033">mmlu</text>
+<text x="787.5" y="543" text-anchor="middle" font-size="11" font-family="Arial" fill="#64748b">40 tasks</text>
+<rect x="916.1" y="70.0" width="52.7" height="430.0" rx="8" fill="#64748b" opacity="0.82"/>
+<text x="942.5" y="62.0" text-anchor="middle" font-size="12" font-family="Arial" fill="#172033">1013</text>
+<line x1="787.5" y1="378.2" x2="942.5" y2="90.8" stroke="#111827" stroke-width="2" opacity="0.6"/>
+<circle cx="942.5" cy="90.8" r="6" fill="#111827"/>
+<text x="942.5" y="78.8" text-anchor="middle" font-size="11" font-family="Arial" fill="#111827">0.089</text>
+<text x="942.5" y="525" text-anchor="middle" font-size="13" font-family="Arial" fill="#172033">humaneval</text>
+<text x="942.5" y="543" text-anchor="middle" font-size="11" font-family="Arial" fill="#64748b">28 tasks</text>
+<text x="1020" y="595" text-anchor="end" font-size="12" font-family="Arial" fill="#64748b">Total rows=2157, nonzero=815 (37.8%)</text>
+</svg>

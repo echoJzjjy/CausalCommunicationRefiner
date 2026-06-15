@@ -441,6 +441,118 @@ def discover_local_entropy_files(
     return sorted(files)
 
 
+def discover_rollout_files(
+    cache_roots: Any | None = None,
+    datasets: set[str] | list[str] | None = None,
+    include_smoke: bool = False,
+) -> list[Path]:
+    wanted = set(datasets or [])
+    files: set[Path] = set()
+    for root in _normalize_roots(cache_roots):
+        root = root.resolve()
+        if root.is_file() and root.name == "rollouts.jsonl":
+            candidates = [root]
+        elif (root / "rollouts.jsonl").exists():
+            candidates = [root / "rollouts.jsonl"]
+        elif root.exists():
+            candidates = list(root.rglob("rollouts.jsonl"))
+        else:
+            candidates = []
+        for path in candidates:
+            if not include_smoke and any("smoke" in part.lower() for part in path.parts):
+                continue
+            if wanted and path.parent.name not in wanted:
+                try:
+                    with path.open(encoding="utf-8") as f:
+                        first = json.loads(next(line for line in f if line.strip()))
+                    if first.get("dataset") not in wanted:
+                        continue
+                except Exception:
+                    continue
+            files.add(path.resolve())
+    return sorted(files)
+
+
+def causal_join_key(row: dict[str, Any]) -> tuple[str, str, str, int]:
+    edge = (row.get("variant") or {}).get("edge") or {}
+    return (
+        str(row.get("dataset") or ""),
+        str(row.get("example_id") or ""),
+        str(edge.get("kind") or ""),
+        _safe_int(edge.get("index"), -1),
+    )
+
+
+def load_rollout_correctness_index(
+    rollout_roots: Any | None = None,
+    datasets: set[str] | list[str] | None = None,
+    include_smoke: bool = False,
+) -> tuple[dict[tuple[str, str], dict[str, Any]], dict[tuple[str, str, str, int], dict[str, Any]], dict[str, Any]]:
+    files = discover_rollout_files(rollout_roots, datasets=datasets, include_smoke=include_smoke)
+    bases: dict[tuple[str, str], dict[str, Any]] = {}
+    drops: dict[tuple[str, str, str, int], dict[str, Any]] = {}
+    duplicate_bases = 0
+    duplicate_drops = 0
+    for path in files:
+        for row in read_jsonl(path):
+            dataset = str(row.get("dataset") or path.parent.name)
+            example_id = str(row.get("example_id") or "")
+            variant = row.get("variant") or {}
+            variant_type = variant.get("type")
+            normalized = dict(row)
+            normalized["dataset"] = dataset
+            normalized.setdefault("metadata", {})
+            normalized["metadata"] = {**(normalized.get("metadata") or {}), "rollout_file": str(path)}
+            if variant_type == "base":
+                key = (dataset, example_id)
+                duplicate_bases += int(key in bases)
+                bases[key] = normalized
+            elif variant_type == "drop_edge" and variant.get("edge") is not None:
+                key = causal_join_key(normalized)
+                duplicate_drops += int(key in drops)
+                drops[key] = normalized
+    info = {
+        "rollout_files": [str(path) for path in files],
+        "base_rows": len(bases),
+        "drop_rows": len(drops),
+        "duplicate_bases": duplicate_bases,
+        "duplicate_drops": duplicate_drops,
+    }
+    return bases, drops, info
+
+
+def causal_local_label(
+    base_row: dict[str, Any],
+    drop_row: dict[str, Any],
+    local_row: dict[str, Any],
+    label_mode: str,
+    correctness_weight: float,
+    entropy_weight: float,
+    cost_penalty: float = 0.0,
+) -> tuple[float, dict[str, Any]]:
+    base_correct = _safe_float((base_row.get("aggregate") or {}).get("correct_score"))
+    drop_correct = _safe_float((drop_row.get("aggregate") or {}).get("correct_score"))
+    quality_drop = max(0.0, base_correct - drop_correct)
+    quality_gain = max(0.0, drop_correct - base_correct)
+    entropy_score = label_from_aggregate(local_row.get("aggregate") or {}, label_mode, cost_penalty=0.0)
+    label = correctness_weight * quality_drop + entropy_weight * entropy_score
+    if cost_penalty > 0:
+        usage = (drop_row.get("aggregate") or {}).get("usage") or {}
+        label -= cost_penalty * math.log1p(_safe_float(usage.get("total_tokens")))
+    label = max(0.0, min(1.0, label))
+    components = {
+        "base_correct_score": base_correct,
+        "drop_correct_score": drop_correct,
+        "quality_drop": quality_drop,
+        "quality_gain": quality_gain,
+        "local_entropy_score": entropy_score,
+        "correctness_weight": correctness_weight,
+        "entropy_weight": entropy_weight,
+        "cost_penalty": cost_penalty,
+    }
+    return label, components
+
+
 def load_local_entropy_training_examples(
     cache_roots: Any | None = None,
     datasets: set[str] | list[str] | None = None,
@@ -492,6 +604,118 @@ def load_local_entropy_training_examples(
         "datasets": sorted({example.dataset for example in examples}),
         "label_mode": label_mode,
         "cost_penalty": cost_penalty,
+    }
+    return examples, summary
+
+
+def load_causal_local_training_examples(
+    local_cache_roots: Any | None = None,
+    rollout_roots: Any | None = None,
+    datasets: set[str] | list[str] | None = None,
+    label_mode: str = "combined",
+    correctness_weight: float = 0.8,
+    entropy_weight: float = 0.2,
+    cost_penalty: float = 0.0,
+    positive_weight: float = 4.0,
+    include_smoke: bool = False,
+) -> tuple[list[LocalEntropyTrainingExample], dict[str, Any]]:
+    local_files = discover_local_entropy_files(local_cache_roots, datasets=datasets, include_smoke=include_smoke)
+    bases, drops, rollout_info = load_rollout_correctness_index(
+        rollout_roots,
+        datasets=datasets,
+        include_smoke=include_smoke,
+    )
+    examples: list[LocalEntropyTrainingExample] = []
+    skipped = 0
+    missing_base = 0
+    missing_drop = 0
+    for path in local_files:
+        dataset_dir = path.parent
+        architecture = load_architecture(dataset_dir)
+        example_graphs = load_example_graphs(dataset_dir)
+        for row in read_jsonl(path):
+            try:
+                dataset = str(row.get("dataset") or dataset_dir.name)
+                row = {**row, "dataset": dataset}
+                edge = row["variant"]["edge"]
+                base_key = (dataset, str(row.get("example_id")))
+                drop_key = causal_join_key(row)
+                base_row = bases.get(base_key)
+                drop_row = drops.get(drop_key)
+                if base_row is None:
+                    missing_base += 1
+                    continue
+                if drop_row is None:
+                    missing_drop += 1
+                    continue
+
+                graph_row = example_graphs.get(str(row.get("example_id")), {})
+                feature = cached_edge_feature(row, architecture, graph_row)
+                target_value, components = causal_local_label(
+                    base_row=base_row,
+                    drop_row=drop_row,
+                    local_row=row,
+                    label_mode=label_mode,
+                    correctness_weight=correctness_weight,
+                    entropy_weight=entropy_weight,
+                    cost_penalty=cost_penalty,
+                )
+                weight = (
+                    1.0
+                    + positive_weight * float(components["quality_drop"] > 1e-8)
+                    + positive_weight * float(target_value)
+                )
+                examples.append(LocalEntropyTrainingExample(
+                    dataset=dataset,
+                    example_id=str(row.get("example_id")),
+                    edge_key=edge_key(edge),
+                    edge_kind=str(edge.get("kind")),
+                    edge_index=_safe_int(edge.get("index")),
+                    source=str(edge.get("source")),
+                    target=str(edge.get("target")),
+                    feature=feature,
+                    target_value=target_value,
+                    weight=weight,
+                    metadata={
+                        "cache_file": str(path),
+                        "variant": row.get("variant"),
+                        "local_aggregate": row.get("aggregate"),
+                        "causal_components": components,
+                        "base_rollout_file": (base_row.get("metadata") or {}).get("rollout_file"),
+                        "drop_rollout_file": (drop_row.get("metadata") or {}).get("rollout_file"),
+                    },
+                ))
+            except Exception as exc:
+                skipped += 1
+                if skipped <= 3:
+                    print(f"[causal_local_explainer] skip {path}: {exc}", flush=True)
+
+    label_values = [example.target_value for example in examples]
+    quality_positive = sum(
+        1
+        for example in examples
+        if ((example.metadata.get("causal_components") or {}).get("quality_drop") or 0.0) > 1e-8
+    )
+    summary = {
+        "local_entropy_files": [str(path) for path in local_files],
+        "rollout": rollout_info,
+        "examples": len(examples),
+        "skipped": skipped,
+        "missing_base": missing_base,
+        "missing_drop": missing_drop,
+        "datasets": sorted({example.dataset for example in examples}),
+        "label_mode": label_mode,
+        "label_source": "causal_local",
+        "correctness_weight": correctness_weight,
+        "entropy_weight": entropy_weight,
+        "cost_penalty": cost_penalty,
+        "quality_positive": quality_positive,
+        "label_stats": {
+            "min": min(label_values) if label_values else 0.0,
+            "max": max(label_values) if label_values else 0.0,
+            "mean": statistics.mean(label_values) if label_values else 0.0,
+            "nonzero": sum(1 for value in label_values if value > 1e-8),
+        },
     }
     return examples, summary
 
@@ -843,6 +1067,45 @@ def train_local_entropy_explainer_from_cache(
     model, info = train_local_entropy_explainer_from_examples(examples, output_dir=output_dir, **train_kwargs)
     info["cache"] = cache_info
     info["label_mode"] = label_mode
+    info["cost_penalty"] = cost_penalty
+    info["positive_weight"] = positive_weight
+    (output_dir / "local_entropy_explainer_summary.json").write_text(
+        json.dumps(info, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return model, info
+
+
+def train_causal_local_explainer_from_cache(
+    output_dir: Path,
+    local_cache_roots: Any | None = None,
+    rollout_roots: Any | None = None,
+    datasets: set[str] | list[str] | None = None,
+    label_mode: str = "combined",
+    correctness_weight: float = 0.8,
+    entropy_weight: float = 0.2,
+    cost_penalty: float = 0.0,
+    positive_weight: float = 4.0,
+    include_smoke: bool = False,
+    **train_kwargs: Any,
+) -> tuple[LocalEntropyEdgeExplainer, dict[str, Any]]:
+    examples, cache_info = load_causal_local_training_examples(
+        local_cache_roots=local_cache_roots,
+        rollout_roots=rollout_roots,
+        datasets=datasets,
+        label_mode=label_mode,
+        correctness_weight=correctness_weight,
+        entropy_weight=entropy_weight,
+        cost_penalty=cost_penalty,
+        positive_weight=positive_weight,
+        include_smoke=include_smoke,
+    )
+    model, info = train_local_entropy_explainer_from_examples(examples, output_dir=output_dir, **train_kwargs)
+    info["cache"] = cache_info
+    info["label_source"] = "causal_local"
+    info["label_mode"] = label_mode
+    info["correctness_weight"] = correctness_weight
+    info["entropy_weight"] = entropy_weight
     info["cost_penalty"] = cost_penalty
     info["positive_weight"] = positive_weight
     (output_dir / "local_entropy_explainer_summary.json").write_text(

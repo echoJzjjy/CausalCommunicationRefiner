@@ -39,7 +39,10 @@ from adapters.gdesigner_trained_counterfactual_builder import (  # noqa: E402
     task_fixed_graph,
     usage_snapshot,
 )
-from ccr.local_entropy_explainer import train_local_entropy_explainer_from_cache  # noqa: E402
+from ccr.local_entropy_explainer import (  # noqa: E402
+    train_causal_local_explainer_from_cache,
+    train_local_entropy_explainer_from_cache,
+)
 from run_causal_explainer_gdesigner import apply_predicted_pruning, predict_scores  # noqa: E402
 from run_granger_gdesigner import DatasetAdapter, build_graph, batch_records, summarize_usage, utc_now  # noqa: E402
 
@@ -50,6 +53,7 @@ DEFAULT_PRETRAINED = {
     "multiarith": PROJECT_ROOT / "results" / "gdesigner_local_entropy_multiarith_gpu5" / "20260608_053344" / "multiarith",
     "svamp": PROJECT_ROOT / "results" / "gdesigner_local_entropy_svamp_gpu6" / "20260608_053344" / "svamp",
     "aqua": PROJECT_ROOT / "results" / "gdesigner_local_entropy_aqua_gpu7" / "20260608_053344" / "aqua",
+    "humaneval": PROJECT_ROOT / "results" / "gdesigner_local_entropy_humaneval_gpu2" / "20260608_053344" / "humaneval",
 }
 DEFAULT_CACHE_ROOTS = {
     "mmlu": [PROJECT_ROOT / "results" / "gdesigner_mmlu_local_entropy_shards"],
@@ -57,6 +61,21 @@ DEFAULT_CACHE_ROOTS = {
     "multiarith": [PROJECT_ROOT / "results" / "gdesigner_local_entropy_multiarith_gpu5" / "20260608_053344"],
     "svamp": [PROJECT_ROOT / "results" / "gdesigner_local_entropy_svamp_gpu6" / "20260608_053344"],
     "aqua": [PROJECT_ROOT / "results" / "gdesigner_local_entropy_aqua_gpu7" / "20260608_053344"],
+    "humaneval": [
+        PROJECT_ROOT / "results" / "gdesigner_local_entropy_humaneval_gpu2" / "20260608_053344",
+        PROJECT_ROOT / "results" / "gdesigner_local_entropy_humaneval_resume_gpu1" / "20260611_072101",
+    ],
+}
+DEFAULT_ROLLOUT_ROOTS = {
+    "mmlu": [PROJECT_ROOT / "results" / "gdesigner_fixed_graph_counterfactual_mmlu_shards" / "20260611_121522"],
+    "gsm8k": [PROJECT_ROOT / "results" / "gdesigner_fixed_graph_counterfactual_remaining" / "20260611_163926" / "gsm8k_s0_gpu3"],
+    "multiarith": [PROJECT_ROOT / "results" / "gdesigner_fixed_graph_counterfactual_remaining" / "20260611_163926" / "multiarith_s0_gpu6"],
+    "svamp": [PROJECT_ROOT / "results" / "gdesigner_fixed_graph_counterfactual_remaining" / "20260611_163926" / "svamp_s0_gpu7"],
+    "aqua": [PROJECT_ROOT / "results" / "gdesigner_fixed_graph_counterfactual_remaining" / "20260611_163926" / "aqua_s0_gpu4"],
+    "humaneval": [
+        PROJECT_ROOT / "results" / "gdesigner_fixed_graph_counterfactual_remaining" / "20260611_163926" / "humaneval_s0_gpu2",
+        PROJECT_ROOT / "results" / "gdesigner_fixed_graph_counterfactual_remaining" / "20260611_163926" / "humaneval_s1_gpu5",
+    ],
 }
 _ORIGINAL_PRINT = builtins.print
 
@@ -83,10 +102,11 @@ def parse_args() -> argparse.Namespace:
             "local-entropy explainer as a post-hoc edge pruner and compare accuracy/token cost."
         )
     )
-    parser.add_argument("--dataset", choices=["mmlu", "gsm8k", "multiarith", "svamp", "aqua"], default="mmlu")
+    parser.add_argument("--dataset", choices=["mmlu", "gsm8k", "multiarith", "svamp", "aqua", "humaneval"], default="mmlu")
     parser.add_argument("--output-root", type=Path, default=PROJECT_ROOT / "results" / "gdesigner_explainer_eval")
     parser.add_argument("--pretrained-cache-dir", type=Path, default=None)
     parser.add_argument("--explainer-cache-roots", nargs="+", type=Path, default=None)
+    parser.add_argument("--explainer-rollout-roots", nargs="+", type=Path, default=None)
     parser.add_argument("--llm-name", default="qwen3-8b")
     parser.add_argument("--base-urls", default="http://127.0.0.1:8003/v1,http://127.0.0.1:8005/v1,http://127.0.0.1:8006/v1,http://127.0.0.1:8007/v1,http://127.0.0.1:8008/v1")
     parser.add_argument("--api-key", default="EMPTY")
@@ -122,7 +142,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--explainer-batch-size", type=int, default=64)
     parser.add_argument("--explainer-val-ratio", type=float, default=0.2)
     parser.add_argument("--explainer-ranking-weight", type=float, default=0.25)
+    parser.add_argument("--explainer-label-source", choices=["local_entropy", "causal_local"], default="local_entropy")
     parser.add_argument("--explainer-label-mode", choices=["pair", "source", "target", "combined"], default="combined")
+    parser.add_argument("--explainer-correctness-weight", type=float, default=0.8)
+    parser.add_argument("--explainer-entropy-weight", type=float, default=0.2)
     parser.add_argument("--explainer-cost-penalty", type=float, default=0.0)
     parser.add_argument("--explainer-positive-weight", type=float, default=4.0)
     parser.add_argument("--seed", type=int, default=888)
@@ -132,6 +155,8 @@ def parse_args() -> argparse.Namespace:
         args.pretrained_cache_dir = DEFAULT_PRETRAINED[args.dataset]
     if args.explainer_cache_roots is None:
         args.explainer_cache_roots = DEFAULT_CACHE_ROOTS[args.dataset]
+    if args.explainer_rollout_roots is None and args.explainer_label_source == "causal_local":
+        args.explainer_rollout_roots = DEFAULT_ROLLOUT_ROOTS[args.dataset]
     return args
 
 
@@ -397,24 +422,41 @@ async def main() -> None:
     pretrained_info = load_pretrained_generator(graph, checkpoint)
 
     explainer_dir = run_dir / "explainer_mmlu_only"
-    explainer, explainer_info = train_local_entropy_explainer_from_cache(
-        output_dir=explainer_dir,
-        cache_roots=args.explainer_cache_roots,
-        datasets=[args.dataset],
-        label_mode=args.explainer_label_mode,
-        cost_penalty=args.explainer_cost_penalty,
-        positive_weight=args.explainer_positive_weight,
-        hidden_dim=args.explainer_hidden_dim,
-        epochs=args.explainer_epochs,
-        lr=args.explainer_lr,
-        weight_decay=args.explainer_weight_decay,
-        dropout=args.explainer_dropout,
-        batch_size=args.explainer_batch_size,
-        val_ratio=args.explainer_val_ratio,
-        ranking_weight=args.explainer_ranking_weight,
-        seed=args.seed,
-        checkpoint_name=f"{args.dataset}_local_entropy_explainer.pt",
-    )
+    train_kwargs = {
+        "hidden_dim": args.explainer_hidden_dim,
+        "epochs": args.explainer_epochs,
+        "lr": args.explainer_lr,
+        "weight_decay": args.explainer_weight_decay,
+        "dropout": args.explainer_dropout,
+        "batch_size": args.explainer_batch_size,
+        "val_ratio": args.explainer_val_ratio,
+        "ranking_weight": args.explainer_ranking_weight,
+        "seed": args.seed,
+        "checkpoint_name": f"{args.dataset}_local_entropy_explainer.pt",
+    }
+    if args.explainer_label_source == "causal_local":
+        explainer, explainer_info = train_causal_local_explainer_from_cache(
+            output_dir=explainer_dir,
+            local_cache_roots=args.explainer_cache_roots,
+            rollout_roots=args.explainer_rollout_roots,
+            datasets=[args.dataset],
+            label_mode=args.explainer_label_mode,
+            correctness_weight=args.explainer_correctness_weight,
+            entropy_weight=args.explainer_entropy_weight,
+            cost_penalty=args.explainer_cost_penalty,
+            positive_weight=args.explainer_positive_weight,
+            **train_kwargs,
+        )
+    else:
+        explainer, explainer_info = train_local_entropy_explainer_from_cache(
+            output_dir=explainer_dir,
+            cache_roots=args.explainer_cache_roots,
+            datasets=[args.dataset],
+            label_mode=args.explainer_label_mode,
+            cost_penalty=args.explainer_cost_penalty,
+            positive_weight=args.explainer_positive_weight,
+            **train_kwargs,
+        )
 
     records = adapter.eval_records[: min(len(adapter.eval_records), args.eval_limit)] if args.eval_limit else list(adapter.eval_records)
     started = time.time()

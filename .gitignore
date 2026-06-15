@@ -1,8 +1,13 @@
 __pycache__/
-*.pyc
+*.py[cod]
 .pytest_cache/
+
+logs/
 results/
+reports/
+
 *.log
 *.pt
 *.jsonl
+*.jsonl.tmp
 docs/method_pipeline_zh_local.md

@@ -15,6 +15,7 @@ import sys
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from ccr.local_entropy_explainer import (  # noqa: E402
+    load_causal_local_training_examples,
     load_local_entropy_training_examples,
     train_local_entropy_explainer_from_examples,
 )
@@ -34,9 +35,19 @@ def parse_args() -> argparse.Namespace:
         default=[PROJECT_ROOT / "results"],
         help="Directories or local_entropy.jsonl files to scan.",
     )
+    parser.add_argument(
+        "--rollout-roots",
+        nargs="+",
+        type=Path,
+        default=None,
+        help="Directories or rollouts.jsonl files with base/drop final correctness. Required for --label-source causal_local.",
+    )
     parser.add_argument("--datasets", nargs="+", default=None, help="Optional dataset filter.")
     parser.add_argument("--output-root", type=Path, default=PROJECT_ROOT / "results" / "local_entropy_explainer")
+    parser.add_argument("--label-source", choices=["local_entropy", "causal_local"], default="local_entropy")
     parser.add_argument("--label-mode", choices=["pair", "source", "target", "combined"], default="combined")
+    parser.add_argument("--correctness-weight", type=float, default=0.8)
+    parser.add_argument("--entropy-weight", type=float, default=0.2)
     parser.add_argument("--cost-penalty", type=float, default=0.0)
     parser.add_argument("--positive-weight", type=float, default=4.0)
     parser.add_argument("--include-smoke", action=argparse.BooleanOptionalAction, default=False)
@@ -60,16 +71,29 @@ def main() -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "args.json").write_text(json.dumps(vars(args), default=str, indent=2), encoding="utf-8")
 
-    examples, cache_info = load_local_entropy_training_examples(
-        cache_roots=args.cache_roots,
-        datasets=args.datasets,
-        label_mode=args.label_mode,
-        cost_penalty=args.cost_penalty,
-        positive_weight=args.positive_weight,
-        include_smoke=args.include_smoke,
-    )
+    if args.label_source == "causal_local":
+        examples, cache_info = load_causal_local_training_examples(
+            local_cache_roots=args.cache_roots,
+            rollout_roots=args.rollout_roots,
+            datasets=args.datasets,
+            label_mode=args.label_mode,
+            correctness_weight=args.correctness_weight,
+            entropy_weight=args.entropy_weight,
+            cost_penalty=args.cost_penalty,
+            positive_weight=args.positive_weight,
+            include_smoke=args.include_smoke,
+        )
+    else:
+        examples, cache_info = load_local_entropy_training_examples(
+            cache_roots=args.cache_roots,
+            datasets=args.datasets,
+            label_mode=args.label_mode,
+            cost_penalty=args.cost_penalty,
+            positive_weight=args.positive_weight,
+            include_smoke=args.include_smoke,
+        )
     if not examples:
-        raise SystemExit(f"No local entropy examples found under {args.cache_roots}.")
+        raise SystemExit(f"No explainer examples found under {args.cache_roots}.")
 
     model, info = train_local_entropy_explainer_from_examples(
         examples,
@@ -86,7 +110,10 @@ def main() -> None:
     )
     del model
     info["cache"] = cache_info
+    info["label_source"] = args.label_source
     info["label_mode"] = args.label_mode
+    info["correctness_weight"] = args.correctness_weight
+    info["entropy_weight"] = args.entropy_weight
     info["cost_penalty"] = args.cost_penalty
     info["positive_weight"] = args.positive_weight
     (run_dir / "local_entropy_explainer_summary.json").write_text(

@@ -96,6 +96,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-name", default=None)
     parser.add_argument("--mmlu-limit", type=int, default=153)
     parser.add_argument("--eval-limit", type=int, default=0)
+    parser.add_argument("--num-shards", type=int, default=1, help="Split eval records into this many deterministic shards.")
+    parser.add_argument("--shard-index", type=int, default=0, help="0-based shard index to evaluate.")
     parser.add_argument("--drop-remainder", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--logit-threshold", type=float, default=0.0)
     parser.add_argument("--budget-grid", type=parse_budget_grid, default=parse_budget_grid(DEFAULT_BUDGETS))
@@ -133,6 +135,10 @@ def parse_args() -> argparse.Namespace:
         args.explainer_cache_roots = DEFAULT_CACHE_ROOTS[args.dataset]
     if args.explainer_rollout_roots is None:
         args.explainer_rollout_roots = DEFAULT_ROLLOUT_ROOTS[args.dataset]
+    if args.num_shards < 1:
+        raise ValueError("--num-shards must be >= 1.")
+    if not (0 <= args.shard_index < args.num_shards):
+        raise ValueError("--shard-index must satisfy 0 <= shard_index < num_shards.")
     return args
 
 
@@ -436,6 +442,8 @@ async def main() -> None:
         )
 
     records = adapter.eval_records[: min(len(adapter.eval_records), args.eval_limit)] if args.eval_limit else list(adapter.eval_records)
+    if args.num_shards > 1:
+        records = [record for idx, record in enumerate(records) if idx % args.num_shards == args.shard_index]
     started = time.time()
     fixed_cache: list[dict[str, Any]] = []
     original = await evaluate_original(adapter, args.dataset, graph, records, args, run_dir, fixed_cache)
@@ -455,6 +463,11 @@ async def main() -> None:
             if args.dataset == "mmlu"
             else f"{args.dataset}_first40_trained_gdesigner_eval_fixed_graph_multi_budget_posthoc"
         ),
+        "shard": {
+            "num_shards": args.num_shards,
+            "shard_index": args.shard_index,
+            "records": len(records),
+        },
         "cost_accounting": {
             "main_comparison": "evaluation-time LLM usage only: original scope vs each posthoc budget scope in usage.jsonl",
             "not_included_in_inference_cost": "one-time GDesigner training, counterfactual cache construction, and offline explainer training",

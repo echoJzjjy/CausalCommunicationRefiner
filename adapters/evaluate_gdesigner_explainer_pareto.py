@@ -5,6 +5,7 @@ import argparse
 import asyncio
 import copy
 import csv
+import hashlib
 import json
 import os
 import random
@@ -124,6 +125,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--explainer-entropy-weight", type=float, default=0.2)
     parser.add_argument("--explainer-cost-penalty", type=float, default=0.0)
     parser.add_argument("--explainer-positive-weight", type=float, default=4.0)
+    parser.add_argument("--score-mode", choices=["explainer", "random"], default="explainer")
+    parser.add_argument("--random-score-seed", type=int, default=None)
+    parser.add_argument(
+        "--baseline-run-dir",
+        type=Path,
+        default=None,
+        help="Reuse a previously saved GDesigner baseline run_dir that contains {dataset}_fixed_graphs.jsonl and summary.json.",
+    )
     parser.add_argument("--seed", type=int, default=888)
     parser.add_argument("--suppress-agent-stdout", action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args()
@@ -139,6 +148,8 @@ def parse_args() -> argparse.Namespace:
         raise ValueError("--num-shards must be >= 1.")
     if not (0 <= args.shard_index < args.num_shards):
         raise ValueError("--shard-index must satisfy 0 <= shard_index < num_shards.")
+    if args.random_score_seed is None:
+        args.random_score_seed = args.seed
     return args
 
 
@@ -153,6 +164,40 @@ def configure_env(args: argparse.Namespace, run_dir: Path) -> None:
     os.environ["AGENTPRUNE_USAGE_LOG"] = str(run_dir / "usage.jsonl")
 
 
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    with path.open(encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                rows.append(json.loads(line))
+    return rows
+
+
+def resolve_baseline_run_dir(baseline_run_dir: Path, dataset: str) -> Path:
+    baseline_run_dir = baseline_run_dir.expanduser().resolve()
+    if (baseline_run_dir / f"{dataset}_fixed_graphs.jsonl").exists():
+        return baseline_run_dir
+    candidates = sorted(baseline_run_dir.glob(f"{dataset}/*/"))
+    for candidate in candidates:
+        if (candidate / f"{dataset}_fixed_graphs.jsonl").exists():
+            return candidate
+    raise FileNotFoundError(
+        f"Could not find {dataset}_fixed_graphs.jsonl under baseline run dir {baseline_run_dir}"
+    )
+
+
+def load_baseline_cache(
+    baseline_run_dir: Path,
+    dataset: str,
+) -> tuple[Path, list[dict[str, Any]], dict[str, Any] | None]:
+    resolved = resolve_baseline_run_dir(baseline_run_dir, dataset)
+    graph_rows = load_jsonl(resolved / f"{dataset}_fixed_graphs.jsonl")
+    summary_path = resolved / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.exists() else None
+    return resolved, graph_rows, summary
+
+
 def budget_name(edge_rate: float, node_rate: float) -> str:
     return f"e{edge_rate:.2f}_n{node_rate:.2f}".replace(".", "p")
 
@@ -162,6 +207,26 @@ def make_prune_args(args: argparse.Namespace, edge_rate: float, node_rate: float
     out.pruning_rate = edge_rate
     out.node_pruning_rate = node_rate
     return out
+
+
+def random_scores_for_graph(graph: Any, task: str, seed: int) -> dict[str, dict[str, float]]:
+    node_ids = list(graph.nodes.keys())
+    spatial_edges = [f"{edge[0]}->{edge[1]}" for edge in graph.potential_spatial_edges]
+    temporal_edges = [f"{edge[0]}->{edge[1]}" for edge in graph.potential_temporal_edges]
+    payload = "||".join([
+        str(seed),
+        task,
+        "|".join(node_ids),
+        "|".join(spatial_edges),
+        "|".join(temporal_edges),
+    ])
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    rng = random.Random(int(digest[:16], 16))
+    return {
+        "node": {node_id: rng.random() for node_id in node_ids},
+        "spatial": {edge: rng.random() for edge in spatial_edges},
+        "temporal": {edge: rng.random() for edge in temporal_edges},
+    }
 
 
 async def evaluate_original(
@@ -231,6 +296,48 @@ async def evaluate_original(
     }
 
 
+def build_fixed_cache_from_baseline(
+    adapter: DatasetAdapter,
+    graph: Any,
+    records: list[Any],
+    baseline_rows: list[dict[str, Any]],
+    args: argparse.Namespace,
+) -> list[dict[str, Any]]:
+    if len(baseline_rows) != len(records):
+        raise ValueError(
+            f"Baseline graph rows ({len(baseline_rows)}) do not match selected eval records ({len(records)}). "
+            "Make sure the baseline run dir and the current eval split/shard are aligned."
+        )
+
+    fixed_cache: list[dict[str, Any]] = []
+    for idx, (record, baseline_row) in enumerate(zip(records, baseline_rows)):
+        input_dict = adapter.input_for(record)
+        baseline_input = baseline_row.get("input") or {}
+        if baseline_input.get("task") != input_dict.get("task"):
+            raise ValueError(
+                f"Baseline task mismatch at index {idx}: "
+                f"{baseline_input.get('task')!r} != {input_dict.get('task')!r}. "
+                "The baseline run dir likely does not belong to this dataset split."
+            )
+        fixed_graph, gdesigner_meta = task_fixed_graph(graph, input_dict["task"], args.logit_threshold)
+        stats = active_graph_stats(fixed_graph)
+        baseline_stats = baseline_row.get("graph_stats") or {}
+        if baseline_stats and stats != baseline_stats:
+            raise ValueError(
+                f"Baseline graph stats mismatch at index {idx}: {stats!r} != {baseline_stats!r}. "
+                "This usually means the current pretrained checkpoint or threshold differs from the baseline run."
+            )
+        fixed_cache.append({
+            "record": record,
+            "input": input_dict,
+            "graph": fixed_graph,
+            "gdesigner_meta": gdesigner_meta,
+            "graph_stats": stats,
+            "baseline_row": baseline_row,
+        })
+    return fixed_cache
+
+
 async def evaluate_budget(
     adapter: DatasetAdapter,
     dataset: str,
@@ -262,7 +369,10 @@ async def evaluate_budget(
             for item in batch:
                 fixed_graph = item["graph"]
                 input_dict = item["input"]
-                scores = predict_scores(explainer, fixed_graph, input_dict["task"])
+                if args.score_mode == "random":
+                    scores = random_scores_for_graph(fixed_graph, input_dict["task"], args.random_score_seed)
+                else:
+                    scores = predict_scores(explainer, fixed_graph, input_dict["task"])
                 pruned_graph, prune_info = apply_predicted_pruning(fixed_graph, scores, prune_args)
                 metas.append((item, prune_info))
                 tasks.append(run_fixed_graph(pruned_graph, adapter, item["record"], args))
@@ -405,48 +515,69 @@ async def main() -> None:
     pretrained_info = load_pretrained_generator(graph, checkpoint)
 
     explainer_dir = run_dir / "explainer"
-    train_kwargs = {
-        "hidden_dim": args.explainer_hidden_dim,
-        "epochs": args.explainer_epochs,
-        "lr": args.explainer_lr,
-        "weight_decay": args.explainer_weight_decay,
-        "dropout": args.explainer_dropout,
-        "batch_size": args.explainer_batch_size,
-        "val_ratio": args.explainer_val_ratio,
-        "ranking_weight": args.explainer_ranking_weight,
-        "seed": args.seed,
-        "checkpoint_name": f"{args.dataset}_{args.explainer_label_source}_explainer.pt",
-    }
-    if args.explainer_label_source == "causal_local":
-        explainer, explainer_info = train_causal_local_explainer_from_cache(
-            output_dir=explainer_dir,
-            local_cache_roots=args.explainer_cache_roots,
-            rollout_roots=args.explainer_rollout_roots,
-            datasets=[args.dataset],
-            label_mode=args.explainer_label_mode,
-            correctness_weight=args.explainer_correctness_weight,
-            entropy_weight=args.explainer_entropy_weight,
-            cost_penalty=args.explainer_cost_penalty,
-            positive_weight=args.explainer_positive_weight,
-            **train_kwargs,
-        )
+    if args.score_mode == "random":
+        explainer = None
+        explainer_info = {
+            "mode": "random",
+            "seed": args.random_score_seed,
+            "note": "Random scores reused the same pruning path; no explainer was trained.",
+        }
     else:
-        explainer, explainer_info = train_local_entropy_explainer_from_cache(
-            output_dir=explainer_dir,
-            cache_roots=args.explainer_cache_roots,
-            datasets=[args.dataset],
-            label_mode=args.explainer_label_mode,
-            cost_penalty=args.explainer_cost_penalty,
-            positive_weight=args.explainer_positive_weight,
-            **train_kwargs,
-        )
+        train_kwargs = {
+            "hidden_dim": args.explainer_hidden_dim,
+            "epochs": args.explainer_epochs,
+            "lr": args.explainer_lr,
+            "weight_decay": args.explainer_weight_decay,
+            "dropout": args.explainer_dropout,
+            "batch_size": args.explainer_batch_size,
+            "val_ratio": args.explainer_val_ratio,
+            "ranking_weight": args.explainer_ranking_weight,
+            "seed": args.seed,
+            "checkpoint_name": f"{args.dataset}_{args.explainer_label_source}_explainer.pt",
+        }
+        if args.explainer_label_source == "causal_local":
+            explainer, explainer_info = train_causal_local_explainer_from_cache(
+                output_dir=explainer_dir,
+                local_cache_roots=args.explainer_cache_roots,
+                rollout_roots=args.explainer_rollout_roots,
+                datasets=[args.dataset],
+                label_mode=args.explainer_label_mode,
+                correctness_weight=args.explainer_correctness_weight,
+                entropy_weight=args.explainer_entropy_weight,
+                cost_penalty=args.explainer_cost_penalty,
+                positive_weight=args.explainer_positive_weight,
+                **train_kwargs,
+            )
+        else:
+            explainer, explainer_info = train_local_entropy_explainer_from_cache(
+                output_dir=explainer_dir,
+                cache_roots=args.explainer_cache_roots,
+                datasets=[args.dataset],
+                label_mode=args.explainer_label_mode,
+                cost_penalty=args.explainer_cost_penalty,
+                positive_weight=args.explainer_positive_weight,
+                **train_kwargs,
+            )
 
     records = adapter.eval_records[: min(len(adapter.eval_records), args.eval_limit)] if args.eval_limit else list(adapter.eval_records)
     if args.num_shards > 1:
         records = [record for idx, record in enumerate(records) if idx % args.num_shards == args.shard_index]
     started = time.time()
-    fixed_cache: list[dict[str, Any]] = []
-    original = await evaluate_original(adapter, args.dataset, graph, records, args, run_dir, fixed_cache)
+    fixed_cache: list[dict[str, Any]]
+    original: dict[str, Any]
+    baseline_summary: dict[str, Any] | None = None
+    baseline_resolved_dir: Path | None = None
+    if args.baseline_run_dir is not None:
+        baseline_resolved_dir, baseline_rows, baseline_summary = load_baseline_cache(args.baseline_run_dir, args.dataset)
+        if baseline_summary is None or "original" not in baseline_summary:
+            raise FileNotFoundError(
+                f"Baseline run dir {baseline_resolved_dir} is missing summary.json with an original result block."
+            )
+        fixed_cache = build_fixed_cache_from_baseline(adapter, graph, records, baseline_rows, args)
+        original = baseline_summary["original"]
+    else:
+        fixed_cache = []
+        original = await evaluate_original(adapter, args.dataset, graph, records, args, run_dir, fixed_cache)
     posthoc_rows = []
     for edge_rate, node_rate in args.budget_grid:
         posthoc_rows.append(await evaluate_budget(adapter, args.dataset, explainer, fixed_cache, args, run_dir, edge_rate, node_rate))
@@ -458,11 +589,15 @@ async def main() -> None:
         "started_at_utc": utc_now(),
         "updated_at_utc": utc_now(),
         "seconds": round(time.time() - started, 2),
+        "seed": args.seed,
+        "random_score_seed": args.random_score_seed,
+        "baseline_run_dir": str(baseline_resolved_dir) if baseline_resolved_dir is not None else None,
         "protocol": (
             "mmlu_dev40_trained_gdesigner_val153_eval_fixed_graph_multi_budget_posthoc"
             if args.dataset == "mmlu"
             else f"{args.dataset}_first40_trained_gdesigner_eval_fixed_graph_multi_budget_posthoc"
         ),
+        "score_mode": args.score_mode,
         "shard": {
             "num_shards": args.num_shards,
             "shard_index": args.shard_index,
@@ -473,6 +608,13 @@ async def main() -> None:
             "not_included_in_inference_cost": "one-time GDesigner training, counterfactual cache construction, and offline explainer training",
         },
         "args": vars(args),
+        "baseline": {
+            "enabled": args.baseline_run_dir is not None,
+            "resolved_run_dir": str(baseline_resolved_dir) if baseline_resolved_dir is not None else None,
+            "summary_file": str(baseline_resolved_dir / "summary.json") if baseline_resolved_dir is not None else None,
+            "fixed_graph_file": str(baseline_resolved_dir / f"{args.dataset}_fixed_graphs.jsonl") if baseline_resolved_dir is not None else None,
+            "original_result_file": str(baseline_resolved_dir / f"{args.dataset}_original.jsonl") if baseline_resolved_dir is not None else None,
+        },
         "pretrained_gdesigner": pretrained_info,
         "explainer_train": explainer_info,
         "original": original,
